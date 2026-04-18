@@ -1,7 +1,7 @@
 package domain.model;
 
 import util.Validator;
-import java.io.Serializable;
+
 import java.util.Objects;
 
 public class House implements Comparable<House> {
@@ -97,6 +97,7 @@ public class House implements Comparable<House> {
                 ", lifts=" + numberOfLifts +
                 '}';
     }
+
     @Override
     public int compareTo(House other) {
         if (other == null) return 1;
@@ -116,4 +117,5 @@ public class House implements Comparable<House> {
         }
 
         return 0;
+    }
 }

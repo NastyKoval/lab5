@@ -1,6 +1,5 @@
 package domain.model;
 
-import java.io.Serializable;
 import domain.enums.Furnish;
 import domain.enums.View;
 import util.Validator;
@@ -159,13 +158,31 @@ public class Flat implements Comparable<Flat> {
 
     @Override
     public int compareTo(Flat other) {
-…
-        // 2. Если площади равны — сравниваем по названию
+        if (other == null) {
+            return 1;
+        }
+
+        // Сравниваем по площади
+        // Обрабатываем случай когда area может быть null
+        if (this.area == null && other.area == null) {
+            // Обе null — переходим к сравнению по названию
+        } else if (this.area == null) {
+            return -1;  // null считаем меньше любого числа
+        } else if (other.area == null) {
+            return 1;   // любое число больше null
+        } else {
+            // Обе не null — сравниваем значения
+            int areaCompare = Double.compare(this.area, other.area);
+            if (areaCompare != 0) {
+                return areaCompare;
+            }
+        }
+
+        // если площади равны — сравниваем по названию
         if (this.name != null && other.name != null) {
             return this.name.compareTo(other.name);
         }
 
-        // Если названия тоже нельзя сравнить — считаем равными
-        //return 0;
+        return 0;
     }
 }
