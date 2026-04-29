@@ -11,6 +11,8 @@ import java.util.Map;
  * Реестр команд на стороне клиента.
  * Отвечает за создание Request объектов.
  */
+
+// регистрирует все комнады, в консольюай проверяет есть ли такая команда
 public class CommandRegistry {
 
     private final Map<String, Request> commandMap;

@@ -106,7 +106,7 @@ public class FlatService {
         nextId = 1;
     }
 
-    // ========== СПЕЦИАЛЬНЫЕ МЕТОДЫ ==========
+    //  СПЕЦИАЛЬНЫЕ МЕТОДЫ
 
     /**
      * Удаляет и возвращает первый элемент.
@@ -170,7 +170,6 @@ public class FlatService {
                 .toList();
     }
 
-    // ========== ВАЛИДАЦИЯ ==========
 
     /**
      * Валидирует аргументы запроса.
@@ -290,7 +289,7 @@ public class FlatService {
         }
     }
 
-    // ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
+    //  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
     private int generateNextId() {
         return repository.findAll().stream()

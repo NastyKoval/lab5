@@ -9,9 +9,9 @@ import server.application.service.FlatService;
  *
  * <p>Имя команды: "info"</p>
  *
- * @author Student
- * @version 1.0
+
  */
+
 public class InfoCommand implements CommandHandler {
 
     private final FlatService flatService;

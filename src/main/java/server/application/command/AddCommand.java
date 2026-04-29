@@ -38,7 +38,7 @@ public class AddCommand implements CommandHandler {
     @Override
     public Response handle(Request request) {
         try {
-            // Преобразуем Request в AddRequest
+            // Преобразуем Request в AddRequest(приведение типа())
             AddRequest addRequest = (AddRequest) request;
 
             // Получаем квартиру из запроса

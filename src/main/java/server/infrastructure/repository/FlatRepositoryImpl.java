@@ -14,8 +14,6 @@ import java.util.Optional;
  *
  * <p>Использует LinkedList для хранения данных в соответствии с требованием.</p>
  *
- * @author Student
- * @version 1.0
  */
 public class FlatRepositoryImpl implements FlatRepository {
 

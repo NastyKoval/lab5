@@ -19,8 +19,7 @@ public class ExitCommand implements CommandHandler {
      */
     @Override
     public Response handle(Request request) {
-        System.exit(0);
-        return null; // Никогда не выполняется
+        return new Response(true, "Программа завершена", null);
     }
 
     /**

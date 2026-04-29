@@ -13,7 +13,7 @@ public class Response {
     private final Object data;          // любые дополнительные данные
     private final List<Flat> flats;     // список квартир
 
-    // Конструктор
+
     public Response(boolean success, String message, Object data) {
         this.success = success;
         this.message = message;

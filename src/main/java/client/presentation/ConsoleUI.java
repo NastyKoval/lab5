@@ -2,44 +2,46 @@ package client.presentation;
 
 import client.presentation.application.command_cl.CommandRegistry;
 import client.presentation.application.command_cl.CommandTypeEnum;
-import client.presentation.application.request.*;
+import client.presentation.application.request.HelpRequest;
+import client.presentation.application.request.Request;
 import client.presentation.application.validator.InputValidator;
+import domain.parser.CommandStringParser;
+import domain.parser.ParseException;
 import server.application.command.CommandRegistryServer;
 import server.application.response.Response;
 import domain.model.*;
 import domain.enums.*;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Scanner;
 
-/**
- * Консольный интерфейс пользователя.
- */
 public class ConsoleUI {
 
     private final Scanner scanner;
     private final CommandRegistry registry;
     private final InputValidator validator;
     private final CommandRegistryServer server;
+    private final CommandStringParser commandParser;
     private boolean running;
+    private int scriptDepth = 0; // Защита от рекурсии
+    private static final int MAX_SCRIPT_DEPTH = 5;
 
-    /**
-     * Конструктор ConsoleUI.
-     */
     public ConsoleUI(CommandRegistry registry, CommandRegistryServer server, InputValidator validator) {
         this.scanner = new Scanner(System.in);
         this.registry = registry;
-        this.validator = new InputValidator();
+        this.validator = validator;
         this.server = server;
-        this.running = true;
+        this.commandParser = new CommandStringParser(validator);
+        this.running = true; // для выхода из бесконечного цикла
     }
 
-    /**
-     * Запускает консольное приложение.
-     */
     public void start() {
-        System.out.println("Добро пожаловать в приложение управления квартирами :)");
+        System.out.println("Добро пожаловать в приложение управления квартирами");
         System.out.println("Введите 'help' для получения справки по командам.");
         System.out.println();
 
@@ -54,7 +56,11 @@ public class ConsoleUI {
 
                 processInput(input);
 
-            } catch (Exception e) {
+            } catch (NoSuchElementException e) {
+                System.out.println("\nПолучен сигнал завершения (Ctrl+D)");
+                running = false;
+            }
+            catch (Exception e) {
                 System.err.println("Ошибка: " + e.getMessage());
             }
         }
@@ -63,31 +69,66 @@ public class ConsoleUI {
         scanner.close();
     }
 
-    /**
-     * Обрабатывает ввод пользователя.
-     */
     private void processInput(String input) {
+        processInput(input, false);
+    }
+
+    private void processInput(String input, boolean isScriptMode) {
         String[] parts = input.split("\\s+", 2);
         String commandName = parts[0].toLowerCase();
         String arguments = parts.length > 1 ? parts[1] : "";
 
-        // Проверяем существование команды
         if (!registry.hasCommand(commandName)) {
             System.err.println("Неизвестная команда: " + commandName);
             System.out.println("Введите 'help' для получения справки.");
             return;
         }
 
-        // Создаём Request с валидацией
-        Request request = createRequest(commandName, arguments);
-        if (request == null) {
-            return;  // Ошибка уже выведена в createRequest
+        // Обработка help - добавляем клиентские команды
+        if (commandName.equals("help")) {
+            printHelp();
+            return;
         }
 
-        // Выполняем команду на сервере
-        Response response = server.execute(request);
+        // Обработка execute_script
+        if (commandName.equals("execute_script")) {
+            executeScriptFile(arguments);
+            return;
+        }
 
-        // Выводим результат (исправлено: getMessage(), не getOutput())
+        // Обработка exit
+        if (commandName.equals("exit")) {
+            running = false;
+            return;
+        }
+
+        // Обработка add / add_if_min
+        if (commandName.equals("add") || commandName.equals("add_if_min")) {
+            if (isScriptMode) {
+                handleFlatCommand(commandName, arguments);
+            } else {
+                handleInteractiveFlatCommand(commandName);
+            }
+            return;
+        }
+
+        // Обработка update
+        if (commandName.equals("update")) {
+            if (isScriptMode) {
+                handleUpdateCommand(arguments);
+            } else {
+                handleInteractiveUpdateCommand(arguments);
+            }
+            return;
+        }
+
+        // Остальные команды
+        Request request = createRequest(commandName, arguments);
+        if (request == null) {
+            return;
+        }
+
+        Response response = server.execute(request);
         if (response != null) {
             if (response.isSuccess()) {
                 System.out.println(response.getMessage());
@@ -97,173 +138,279 @@ public class ConsoleUI {
         }
     }
 
-    /**
-     * Создаёт Request объект с валидацией аргументов.
-     */
-    private Request createRequest(String commandName, String arguments) {
-        CommandTypeEnum type = registry.getCommandType(commandName);
-        Map<String, Object> args = new HashMap<>();
-
-        // Валидация и сбор аргументов в зависимости от типа команды
-        switch (type) {
-            case NO_ARGS:
-                // Аргументы не нужны
-                break;
-
-            case ID_ARG:
-                if (!validator.isInteger(arguments)) {
-                    System.err.println("ID должен быть целым числом!");
-                    return null;
-                }
-                int id = Integer.parseInt(arguments.trim());
-                if (id <= 0) {
-                    System.err.println("ID должен быть больше 0!");
-                    return null;
-                }
-                args.put("id", id);
-                break;
-
-            case FLAT_ARG:
-                Flat flat = parseFlat(arguments);
-                if (flat == null) {
-                    return null;  // Ошибка уже выведена в parseFlat
-                }
-                args.put("flat", flat);
-                break;
-
-            case ID_AND_FLAT:
-                String[] updateArgs = arguments.split("\\s+", 2);
-                if (updateArgs.length < 2) {
-                    System.err.println("Требуется ID и данные квартиры!");
-                    return null;
-                }
-                if (!validator.isInteger(updateArgs[0])) {
-                    System.err.println("ID должен быть целым числом!");
-                    return null;
-                }
-                int updateId = Integer.parseInt(updateArgs[0].trim());
-                if (updateId <= 0) {
-                    System.err.println("ID должен быть больше 0!");
-                    return null;
-                }
-                Flat updateFlat = parseFlat(updateArgs[1]);
-                if (updateFlat == null) {
-                    return null;
-                }
-                args.put("id", updateId);
-                args.put("flat", updateFlat);
-                break;
-
-            case LONG_ARG:
-                if (!validator.isLong(arguments)) {
-                    System.err.println("Значение должно быть числом!");
-                    return null;
-                }
-                long value = Long.parseLong(arguments.trim());
-                args.put("value", value);
-                break;
-
-            case HOUSE_ARG:
-                House house = parseHouse(arguments);
-                if (house == null) {
-                    return null;
-                }
-                args.put("house", house);
-                break;
-
-            case STRING_ARG:
-                if (!validator.validateString(arguments, "Имя файла")) {
-                    System.err.println("Имя файла не может быть пустым!");
-                    return null;
-                }
-                args.put("fileName", arguments.trim());
-                break;
+    // Вывод справки с серверными и клиентскими командами
+    private void printHelp() {
+        // Серверные команды
+        Request helpRequest = new HelpRequest();
+        Response response = server.execute(helpRequest);
+        if (response != null && response.isSuccess()) {
+            System.out.println("Серверные команды:");
+            System.out.println(response.getMessage());
         }
 
-        // Финальная проверка аргументов
-        if (!validator.checkArgs(args, type)) {
-            System.err.println("Неверные аргументы для команды: " + commandName);
-            return null;
-        }
-
-        // Создаём и возвращаем Request через реестр
-        return registry.buildRequest(commandName, args);
+        // Клиентские команды
+        System.out.println("Клиентские команды:");
+        System.out.println("execute_script {file} - выполнить скрипт из файла");
     }
 
-    /**
-     * Парсит строку в объект Flat.
-     */
-    private Flat parseFlat(String arguments) {
+    // Выполняет команды из файла
+    private void executeScriptFile(String fileName) {
+        if (fileName == null || fileName.trim().isEmpty()) {
+            System.err.println("Укажите имя файла: execute_script <filename>");
+            return;
+        }
+
+        fileName = fileName.trim();
+
+        if (scriptDepth >= MAX_SCRIPT_DEPTH) {
+            System.err.println("Превышена максимальная вложенность скриптов");
+            return;
+        }
+
+        java.io.File file = new java.io.File(fileName);
+        if (!file.exists()) {
+            System.err.println("Файл не найден: " + fileName);
+            return;
+        }
+
+        /*if (!file.canRead()) {
+            System.err.println("Нет прав на чтение файла: " + fileName);
+            return;
+        }*/
+
+        // Открываем файл
+        System.out.println("Выполнение скрипта: " + fileName);
+        scriptDepth++;
+        // Читаем пострончо
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            int lineNumber = 0;
+            // Читаем одну строку за раз
+            while ((line = reader.readLine()) != null && running) {
+                lineNumber++;
+                line = line.trim();
+
+                if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) {
+                    continue;
+                }
+
+                System.out.println("[" + lineNumber + "] " + line);
+                processInput(line, true);// Выполняем команду
+            }
+
+            System.out.println("Скрипт завершён");
+
+        } catch (IOException e) {
+            System.err.println("Ошибка чтения файла: " + e.getMessage());
+        } finally {
+            scriptDepth--; // Защищаем от рекурсии
+        }
+    }
+
+    // Создаёт Request через парсер
+    private Request createRequest(String commandName, String arguments) {
         try {
-            String[] args = arguments.split("\\s+");
-            if (args.length < 8) {  // Минимум: name area x y [rooms] [bathrooms] furnish view
-                System.err.println("Недостаточно данных для квартиры!");
-                System.out.println("Пример: Название 50.5 10 20.5 2 1 FINE GOOD");
-                return null;
-            }
+            return commandParser.parseCommand(commandName, arguments, registry);
+        } catch (ParseException e) {
+            System.err.println(e.getMessage());
+            return null;
+        }
+    }
 
-            String name = args[0];
+    // Обработка add / add_if_min в скрипте
+    private void handleFlatCommand(String commandName, String arguments) {
+        Request request = createRequest(commandName, arguments);
+        if (request == null) {
+            return;
+        }
+
+        Response response = server.execute(request);
+        if (response != null) {
+            if (response.isSuccess()) {
+                System.out.println(response.getMessage());
+            } else {
+                System.err.println(response.getMessage());
+            }
+        }
+    }
+
+    // Обработка add / add_if_min в интерактивном режиме
+    private void handleInteractiveFlatCommand(String commandName) {
+        System.out.println("Команда: " + commandName);
+        Flat flat = readFlatInteractively();// Спрашиваем данные квартиры
+        if (flat == null) {
+            System.err.println("Ввод прерван");
+            return;
+        }
+        // Создаем Request
+        Map<String, Object> args = new HashMap<>();
+        args.put("flat", flat);
+
+        Request request = registry.buildRequest(commandName, args);
+        Response response = server.execute(request);
+
+        if (response != null) {
+            if (response.isSuccess()) {
+                System.out.println(response.getMessage());
+            } else {
+                System.err.println(response.getMessage());
+            }
+        }
+    }
+
+    // Обработка update в скрипте
+    private void handleUpdateCommand(String arguments) {
+        Request request = createRequest("update", arguments);
+        if (request == null) {
+            return;
+        }
+
+        Response response = server.execute(request);
+        if (response != null) {
+            if (response.isSuccess()) {
+                System.out.println(response.getMessage());
+            } else {
+                System.err.println(response.getMessage());
+            }
+        }
+    }
+
+    // Обработка update в интерактивном режиме
+    private void handleInteractiveUpdateCommand(String arguments) {
+        if (arguments.trim().isEmpty()) {
+            System.err.println("Укажите ID: update <id>");
+            return;
+        }
+
+        int id;
+        try {
+            id = Integer.parseInt(arguments.trim());
+            if (id <= 0) {
+                System.err.println("ID должен быть больше 0");
+                return;
+            }
+        } catch (NumberFormatException e) {
+            System.err.println("ID должен быть числом");
+            return;
+        }
+
+        System.out.println("Обновление квартиры с ID=" + id);
+        Flat flat = readFlatInteractively();
+
+        if (flat == null) {
+            System.err.println("Ввод прерван");
+            return;
+        }
+
+        Map<String, Object> args = new HashMap<>();
+        args.put("id", id);
+        args.put("flat", flat);
+
+        Request request = registry.buildRequest("update", args);
+        Response response = server.execute(request);
+
+        if (response != null) {
+            if (response.isSuccess()) {
+                System.out.println(response.getMessage());
+            } else {
+                System.err.println(response.getMessage());
+            }
+        }
+    }
+
+    // Интерактивный ввод данных квартиры
+    private Flat readFlatInteractively() {
+        try {
+            System.out.print("Название: ");
+            String name = scanner.nextLine().trim();
             if (!validator.validateString(name, "Название")) {
-                System.err.println("Название не может быть пустым!");
+                System.err.println("Название не может быть пустым");
                 return null;
             }
 
-            double area = Double.parseDouble(args[1]);
+            System.out.print("Площадь: ");
+            double area = Double.parseDouble(scanner.nextLine().trim());
             if (!validator.isPositive(area, "Площадь")) {
-                System.err.println("Площадь должна быть больше 0!");
+                System.err.println("Площадь должна быть больше 0");
                 return null;
             }
 
-            int x = Integer.parseInt(args[2]);
-            float y = Float.parseFloat(args[3]);
+            System.out.print("Координата X: ");
+            int x = Integer.parseInt(scanner.nextLine().trim());
+
+            System.out.print("Координата Y: ");
+            float y = Float.parseFloat(scanner.nextLine().trim());
             Coordinates coordinates = new Coordinates(x, y);
 
-            Integer numberOfRooms = null;
-            if (args.length > 4 && !args[4].equals("null")) {
-                numberOfRooms = Integer.parseInt(args[4]);
-                if (!validator.isPositive(numberOfRooms, "Комнаты")) {
-                    System.err.println("Количество комнат должно быть больше 0!");
-                    return null;
-                }
+            System.out.print("Количество комнат (или нажмите Enter): ");
+            String roomsInput = scanner.nextLine().trim();
+            Integer numberOfRooms = roomsInput.isEmpty() ? null : Integer.parseInt(roomsInput);
+            if (numberOfRooms != null && !validator.isPositive(numberOfRooms, "Комнаты")) {
+                System.err.println("Количество комнат должно быть больше 0");
+                return null;
             }
 
-            Long numberOfBathrooms = null;
-            if (args.length > 5 && !args[5].equals("null")) {
-                numberOfBathrooms = Long.parseLong(args[5]);
-                if (!validator.isPositive(numberOfBathrooms, "Ванные")) {
-                    System.err.println("Количество ванных должно быть больше 0!");
-                    return null;
-                }
+            System.out.print("Количество ванных: ");
+            String bathsInput = scanner.nextLine().trim();
+            Long numberOfBathrooms = bathsInput.isEmpty() ? null : Long.parseLong(bathsInput);
+            if (numberOfBathrooms != null && !validator.isPositive(numberOfBathrooms, "Ванные")) {
+                System.err.println("Количество ванных должно быть больше 0");
+                return null;
             }
 
-            Furnish furnish = null;
-            if (args.length > 6) {
-                if (!validator.validateFurnish(args[6])) {
-                    System.err.println("Неверное значение Furnish! Доступные: FINE, BAD, LITTLE, DESIGNER, NONE");
-                    return null;
-                }
-                furnish = Furnish.valueOf(args[6].toUpperCase());
+            System.out.print("Furnish (FINE/BAD/LITTLE/DESIGNER/NONE): ");
+            String furnishStr = scanner.nextLine().trim().toUpperCase();
+            if (!validator.validateFurnish(furnishStr)) {
+                System.err.println("Неверное значение Furnish");
+                return null;
             }
+            Furnish furnish = Furnish.valueOf(furnishStr);
 
-            View view = View.GOOD;  // default
-            if (args.length > 7) {
-                if (!validator.validateView(args[7])) {
-                    System.err.println("Неверное значение View! Доступные: GOOD, BAD, TERRIBLE");
-                    return null;
-                }
-                view = View.valueOf(args[7].toUpperCase());
+            System.out.print("View (GOOD/BAD/TERRIBLE): ");
+            String viewStr = scanner.nextLine().trim().toUpperCase();
+            if (!validator.validateView(viewStr)) {
+                System.err.println("Неверное значение View");
+                return null;
             }
+            View view = View.valueOf(viewStr);
 
-            // Парсинг House (опционально)
             House house = null;
-            if (args.length > 11) {
-                house = parseHouse(String.join(" ", java.util.Arrays.copyOfRange(args, 8, args.length)));
+            System.out.print("Название дома (или Enter для пропуска): ");
+            String houseName = scanner.nextLine().trim();
+
+            if (!houseName.isEmpty()) {
+                System.out.print("Год постройки (1-774): ");
+                Long year = Long.parseLong(scanner.nextLine().trim());
+                if (!validator.isInRange(year, 1, 774, "Год")) {
+                    System.err.println("Год должен быть от 1 до 774");
+                    return null;
+                }
+
+                System.out.print("Этажи (1-64): ");
+                Long floors = Long.parseLong(scanner.nextLine().trim());
+                if (!validator.isInRange(floors, 1, 64, "Этажи")) {
+                    System.err.println("Этажи должны быть от 1 до 64");
+                    return null;
+                }
+
+                System.out.print("Квартир на этаже: ");
+                Integer flatsOnFloor = Integer.parseInt(scanner.nextLine().trim());
+                if (!validator.isPositive(flatsOnFloor, "Квартир на этаже")) {
+                    System.err.println("Должно быть больше 0");
+                    return null;
+                }
+
+                System.out.print("Лифтов (или Enter): ");
+                String liftsInput = scanner.nextLine().trim();
+                Long lifts = liftsInput.isEmpty() ? null : Long.parseLong(liftsInput);
+
+                house = new House(houseName, year, floors, flatsOnFloor, lifts);
             }
 
             return new Flat(name, coordinates, area, numberOfRooms, numberOfBathrooms, furnish, view, house);
 
         } catch (NumberFormatException e) {
-            System.err.println("Ошибка формата числа: " + e.getMessage());
+            System.err.println("Ошибка числа: " + e.getMessage());
             return null;
         } catch (IllegalArgumentException e) {
             System.err.println("Ошибка: " + e.getMessage());
@@ -271,62 +418,6 @@ public class ConsoleUI {
         }
     }
 
-    /**
-     * Парсит строку в объект House.
-     */
-    private House parseHouse(String arguments) {
-        try {
-            String[] args = arguments.split("\\s+");
-            if (args.length < 4) {
-                System.err.println("Недостаточно данных для дома!");
-                System.out.println("Пример: Дом 2000 10 4 2");
-                return null;
-            }
-
-            String name = args[0];
-            if (!validator.validateString(name, "Название дома")) {
-                System.err.println("Название дома не может быть пустым!");
-                return null;
-            }
-
-            Long year = Long.parseLong(args[1]);
-            if (!validator.isInRange(year, 1, 774, "Год")) {
-                System.err.println("Год должен быть от 1 до 774!");
-                return null;
-            }
-
-            Long numberOfFloors = Long.parseLong(args[2]);
-            if (!validator.isInRange(numberOfFloors, 1, 64, "Этажи")) {
-                System.err.println("Количество этажей должно быть от 1 до 64!");
-                return null;
-            }
-
-            Integer numberOfFlatsOnFloor = Integer.parseInt(args[3]);
-            if (!validator.isPositive(numberOfFlatsOnFloor, "Квартир на этаже")) {
-                System.err.println("Количество квартир на этаже должно быть больше 0!");
-                return null;
-            }
-
-            Long numberOfLifts = null;
-            if (args.length > 4) {
-                numberOfLifts = Long.parseLong(args[4]);
-                if (!validator.isPositive(numberOfLifts, "Лифты")) {
-                    System.err.println("Количество лифтов должно быть больше 0!");
-                    return null;
-                }
-            }
-
-            return new House(name, year, numberOfFloors, numberOfFlatsOnFloor, numberOfLifts);
-
-        } catch (NumberFormatException e) {
-            System.err.println("Ошибка формата числа: " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Останавливает приложение.
-     */
     public void stop() {
         running = false;
     }

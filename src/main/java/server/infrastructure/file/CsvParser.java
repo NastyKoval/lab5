@@ -64,7 +64,7 @@ public class CsvParser {
         float y = Float.parseFloat(parts[3]);
         Coordinates coordinates = new Coordinates(x, y);
 
-        // Безопасный парсинг creationDate
+        // Безопасный парсинг creationDate( даже если в дате ошибка)
         LocalDateTime creationDate;
         if (parts.length > 4 && parts[4] != null && !parts[4].trim().isEmpty() && !parts[4].equals("null")) {
             try {

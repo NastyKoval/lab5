@@ -7,7 +7,7 @@ import client.presentation.application.request.Request;
 
 import java.util.HashMap;
 import java.util.Map;
-
+// Связь с сервером
 /**
  * Реестр команд на стороне сервера.
  * Отвечает за регистрацию и выполнение команд.
@@ -47,7 +47,7 @@ public class CommandRegistryServer {
         register(new CountLessThanBathroomsCommand(flatService));
         register(new FilterGreaterThanHouseCommand(flatService));
         register(new PrintFieldDescendingFurnishCommand(flatService));
-        // register(new ExecuteScriptCommand(flatService)); // если есть
+        register(new ExecuteScriptCommand());
     }
 
     /**
