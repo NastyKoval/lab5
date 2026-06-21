@@ -19,7 +19,6 @@ public interface CommandHandler {
 
     /**
      * Получает описание команды.
-     *
      * @return краткое описание что делает команда
      */
 

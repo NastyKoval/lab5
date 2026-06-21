@@ -1,9 +1,6 @@
 package common.request;
 
-import java.io.Serializable;
-
-public enum CommandType implements Serializable {
-
+public enum CommandType {
     // Публичные команды (не требуют авторизации)
     LOGIN,
     REGISTER,
@@ -19,17 +16,18 @@ public enum CommandType implements Serializable {
     REMOVE_HEAD,
     PRINT_FIELD_DESCENDING_FURNISH,
 
-    // Команды с аргументом (простые данные: ID, числа, строки)
+    // Команды с простыми аргументами (ID, числа, строки)
     REMOVE_BY_ID,
     COUNT_LESS_THAN_NUMBER_OF_BATHROOMS,
     EXECUTE_SCRIPT,
+    FILTER_LESS_THAN_FURNISH,
 
     // Команды с объектом (Flat, House)
     ADD,
     ADD_IF_MIN,
     FILTER_GREATER_THAN_HOUSE,
 
-    // Команды с аргументом И объектом
+    // Команда с аргументами и объектом
     UPDATE;
 
     public boolean requiresData() {
@@ -37,8 +35,11 @@ public enum CommandType implements Serializable {
     }
 
     public boolean requiresArguments() {
-        return this == REMOVE_BY_ID || this == COUNT_LESS_THAN_NUMBER_OF_BATHROOMS ||
-                this == EXECUTE_SCRIPT || this == UPDATE;
+        return this == REMOVE_BY_ID ||
+                this == COUNT_LESS_THAN_NUMBER_OF_BATHROOMS ||
+                this == EXECUTE_SCRIPT ||
+                this == UPDATE ||
+                this == FILTER_LESS_THAN_FURNISH;
     }
 
     public boolean isPublic() {

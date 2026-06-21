@@ -20,7 +20,10 @@ public class AddIfMinCommand implements CommandHandler {
                 return new Response(false, "Данные квартиры не переданы", null);
             }
 
-            boolean added = flatService.addIfMin(flat);
+            // ID пользователя, который создаёт квартиру - станет владельцем
+            int ownerId = request.getUser().getId();
+
+            boolean added = flatService.addIfMin(flat, ownerId);
 
             return added
                     ? new Response(true, "Элемент добавлен (его значение меньше минимального)", null)

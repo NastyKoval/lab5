@@ -19,7 +19,9 @@ public class Flat implements Comparable<Flat>, Serializable {
     private Furnish furnish; //Поле может быть null
     private View view; //Поле не может быть null
     private House house; //Поле может быть null
+    private Integer ownerId;
     private static final long serialVersionUID = 1L;
+
     public Flat(String name, Coordinates coordinates, Double area, Integer numberOfRooms, Long numberOfBathrooms, Furnish furnish, View view, House house) {
         this.name = name;
         this.coordinates = coordinates;
@@ -128,6 +130,8 @@ public class Flat implements Comparable<Flat>, Serializable {
         this.house = house;
     }
 
+    public Integer getOwnerId() { return ownerId; }
+    public void setOwnerId(Integer ownerId) { this.ownerId = ownerId; }
 
     @Override
     public boolean equals(Object o) {

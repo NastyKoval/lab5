@@ -29,16 +29,22 @@ public class UpdateCommand implements CommandHandler {
                 return new Response(false, "Новые данные квартиры не переданы", null);
             }
 
-            boolean updated = flatService.updateFlat(id, newFlat);
+            // ID пользователя, который выполняет запрос (для проверки прав)
+            int requesterId = request.getUser().getId();
+
+            boolean updated = flatService.updateFlat(id, newFlat, requesterId);
 
             return updated
                     ? new Response(true, "Квартира обновлена", null)
-                    : new Response(false, "Квартира не найдена или нет прав", null);
+                    : new Response(false, "Квартира с таким ID не найдена", null);
 
         } catch (NumberFormatException e) {
             return new Response(false, "Неверный формат ID", null);
         } catch (ClassCastException e) {
             return new Response(false, "Ошибка типа данных", null);
+        } catch (SecurityException e) {
+            // объект существует, но принадлежит другому пользователю
+            return new Response(false, e.getMessage(), null);
         } catch (Exception e) {
             return new Response(false, "Ошибка: " + e.getMessage(), null);
         }

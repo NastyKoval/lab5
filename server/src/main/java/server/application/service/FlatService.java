@@ -1,10 +1,14 @@
 package server.application.service;
 
-import common.request.*;
+import common.request.CommandType;
+import common.request.Request;
 import server.infrastructure.repository.FlatRepository;
 import common.domain.model.Flat;
 import common.domain.model.House;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -15,11 +19,10 @@ import java.util.Optional;
 public class FlatService {
 
     private final FlatRepository repository;
-    private int nextId;
 
     public FlatService(FlatRepository repository) {
         this.repository = repository;
-        this.nextId = generateNextId();
+        // вместо nextId  - id теперь генерирует sequence в бд
     }
 
     // CRUD Операции
@@ -27,20 +30,20 @@ public class FlatService {
     /**
      * Добавляет новую квартиру.
      */
-    public void addFlat(Flat flat) {
+    public void addFlat(Flat flat, int ownerId) {
         validateFlat(flat);
-        flat.setId(nextId++);
+        flat.setOwnerId(ownerId);
         repository.save(flat);
     }
 
     /**
      * Добавляет квартиру только если она меньше минимальной.
      */
-    public boolean addIfMin(Flat flat) {
+    public boolean addIfMin(Flat flat, int ownerId) {
         validateFlat(flat);
 
         if (repository.findAll().isEmpty()) {
-            flat.setId(nextId++);
+            flat.setOwnerId(ownerId);
             repository.save(flat);
             return true;
         }
@@ -50,7 +53,7 @@ public class FlatService {
                 .orElseThrow();
 
         if (flat.compareTo(minFlat) < 0) {
-            flat.setId(nextId++);
+            flat.setOwnerId(ownerId);
             repository.save(flat);
             return true;
         }
@@ -59,27 +62,47 @@ public class FlatService {
     }
 
     /**
-     * Удаляет квартиру по ID.
+     * Удаляет квартиру по ID. Удалить может только владелец квартиры.
      */
-    public boolean removeById(int id) {
-        if (!repository.existsById(id)) {
+    public boolean removeById(int id, int requesterId) {
+        Optional<Flat> flatOpt = repository.findById(id);
+        if (flatOpt.isEmpty()) {
             return false;
         }
+
+        Flat flat = flatOpt.get();
+        checkOwnership(flat, requesterId);
+
         repository.deleteById(id);
         return true;
     }
 
     /**
-     * Обновляет квартиру по ID.
+     * Обновляет квартиру по ID. Обновить может только владелец квартиры.
      */
-    public boolean updateFlat(int id, Flat newFlat) {
-        if (!repository.existsById(id)) {
+    public boolean updateFlat(int id, Flat newFlat, int requesterId) {
+        Optional<Flat> existingOpt = repository.findById(id);
+        if (existingOpt.isEmpty()) {
             return false;
         }
+
+        Flat existing = existingOpt.get();
+        checkOwnership(existing, requesterId);
+
         validateFlat(newFlat);
         newFlat.setId(id);
+        newFlat.setOwnerId(existing.getOwnerId()); // владелец не меняется
         repository.update(id, newFlat);
         return true;
+    }
+
+    // Проверяет, что текущий пользователь - владелец этого объекта
+    private void checkOwnership(Flat flat, int requesterId) {
+        if (flat.getOwnerId() == null || flat.getOwnerId() != requesterId) {
+            throw new SecurityException(
+                    "Изменять можно только свои объекты. Владелец: " + flat.getOwnerId()
+            );
+        }
     }
 
     /**
@@ -103,7 +126,6 @@ public class FlatService {
      */
     public void clear() {
         repository.clear();
-        nextId = 1;
     }
 
     //  СПЕЦИАЛЬНЫЕ МЕТОДЫ
@@ -150,7 +172,7 @@ public class FlatService {
     }
 
     /**
-     * Фильтрует квартиры по house (больше заданного).
+     * Фильтрует квартиры по house.
      */
     public List<Flat> filterGreaterThanHouse(House house) {
         return repository.findAll().stream()
@@ -177,44 +199,71 @@ public class FlatService {
     public ValidationResult validateArguments(Request request) {
         List<String> errors = new ArrayList<>();
 
-        if (request instanceof AddRequest addRequest) {
-            Flat flat = addRequest.getFlat();
-            if (flat == null) {
-                errors.add("Квартира не может быть null");
-            } else {
-                validateFlat(flat, errors);
-            }
+        CommandType type = request.getType();
+        Object data = request.getData();
+        String[] arguments = request.getArguments();
 
-        } else if (request instanceof UpdateRequest updateRequest) {
-            if (updateRequest.getId() <= 0) {
-                errors.add("ID должен быть больше 0");
+        switch (type) {
+            case ADD, ADD_IF_MIN -> {
+                if (data instanceof Flat flat) {
+                    validateFlat(flat, errors);
+                } else {
+                    errors.add("Квартира не может быть null");
+                }
             }
-            Flat flat = updateRequest.getFlat();
-            if (flat == null) {
-                errors.add("Квартира не может быть null");
-            } else {
-                validateFlat(flat, errors);
+            case UPDATE -> {
+                if (arguments == null || arguments.length == 0) {
+                    errors.add("ID должен быть больше 0");
+                } else {
+                    try {
+                        int id = Integer.parseInt(arguments[0]);
+                        if (id <= 0) {
+                            errors.add("ID должен быть больше 0");
+                        }
+                    } catch (NumberFormatException e) {
+                        errors.add("ID должен быть числом");
+                    }
+                }
+                if (data instanceof Flat flat) {
+                    validateFlat(flat, errors);
+                } else {
+                    errors.add("Квартира не может быть null");
+                }
             }
-
-        } else if (request instanceof RemoveRequest removeRequest) {
-            if (removeRequest.getId() <= 0) {
-                errors.add("ID должен быть больше 0");
+            case REMOVE_BY_ID -> {
+                if (arguments == null || arguments.length == 0) {
+                    errors.add("ID должен быть больше 0");
+                } else {
+                    try {
+                        int id = Integer.parseInt(arguments[0]);
+                        if (id <= 0) {
+                            errors.add("ID должен быть больше 0");
+                        }
+                    } catch (NumberFormatException e) {
+                        errors.add("ID должен быть числом");
+                    }
+                }
             }
-
-        } else if (request instanceof AddIfMinRequest addIfMinRequest) {
-            Flat flat = addIfMinRequest.getFlat();
-            if (flat == null) {
-                errors.add("Квартира не может быть null");
-            } else {
-                validateFlat(flat, errors);
+            case FILTER_GREATER_THAN_HOUSE -> {
+                if (data instanceof House house) {
+                    validateHouse(house, errors);
+                } else {
+                    errors.add("Дом не может быть null");
+                }
             }
-
-        } else if (request instanceof FilterGreaterThanHouseRequest filterRequest) {
-            House house = filterRequest.getHouse();
-            if (house == null) {
-                errors.add("Дом не может быть null");
-            } else {
-                validateHouse(house, errors);
+            case COUNT_LESS_THAN_NUMBER_OF_BATHROOMS -> {
+                if (arguments == null || arguments.length == 0) {
+                    errors.add("Аргумент должен быть указан");
+                } else {
+                    try {
+                        Long.parseLong(arguments[0]);
+                    } catch (NumberFormatException e) {
+                        errors.add("Аргумент должен быть числом");
+                    }
+                }
+            }
+            default -> {
+                // Остальные команды не требуют валидации аргументов
             }
         }
 
@@ -291,13 +340,6 @@ public class FlatService {
 
     //  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
 
-    private int generateNextId() {
-        return repository.findAll().stream()
-                .mapToInt(Flat::getId)
-                .max()
-                .orElse(0) + 1;
-    }
-
     private void validateFlat(Flat flat) {
         List<String> errors = new ArrayList<>();
         validateFlat(flat, errors);
@@ -305,6 +347,7 @@ public class FlatService {
             throw new IllegalArgumentException(String.join("; ", errors));
         }
     }
+
     //  МЕТОДЫ ДЛЯ КОМАНД (обёртки)
 
     /**
@@ -323,12 +366,45 @@ public class FlatService {
 
     /**
      * Подсчитывает количество квартир с numberOfBathrooms меньше заданного.
-     * (Алиас для countLessThanBathrooms)
+     * (для countLessThanBathrooms)
      */
     public long countLessThanNumberOfBathrooms(Long value) {
         return countLessThanBathrooms(value);
     }
 
+    /**
+     * Удаляет все квартиры, принадлежащие указанному пользователю.
+     * @param ownerId ID владельца
+     * @return количество удалённых квартир
+     */
+    public int removeFlatsByOwnerId(int ownerId) {
+        return repository.removeByOwnerId(ownerId);
+    }
+
+    /**
+     * Выполняет скрипт из файла.
+     */
+    public boolean executeScript(String path) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+            String line;
+            int lineNumber = 0;
+
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                line = line.trim();
+
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                System.out.println("Выполняется команда " + lineNumber + ": " + line);
+            }
+
+            return true;
+        } catch (IOException e) {
+            throw new RuntimeException("Ошибка выполнения скрипта: " + e.getMessage());
+        }
+    }
 
     /**
      * Возвращает текст справки (для команды help).
@@ -354,4 +430,6 @@ public class FlatService {
                 execute_script - выполнить скрипт
                 """;
     }
+
+
 }

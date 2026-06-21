@@ -113,49 +113,30 @@ public class InputValidator {
             return false;
         }
     }
-
     // Проверка что аргументы соответствуют типу команды
     public boolean checkArgs(Map<String, Object> args, CommandType type) {
         if (args == null) {
-            return type == CommandType.NO_ARGS;
+            return !type.requiresArguments() && !type.requiresData();
         }
 
-        switch (type) {
-            case NO_ARGS:
-                return args.isEmpty();
-
-            case ID_ARG:
-                return args.containsKey("id") &&
-                        args.get("id") instanceof Integer;
-
-            case FLAT_ARG:
-                return args.containsKey("flat") &&
-                        args.get("flat") != null;
-
-            case ID_AND_FLAT:
-                return args.containsKey("id") &&
-                        args.containsKey("flat") &&
-                        args.get("id") instanceof Integer &&
-                        args.get("flat") != null;
-
-            case LONG_ARG:
-                return args.containsKey("value") &&
-                        args.get("value") instanceof Long;
-
-            case HOUSE_ARG:
-                return args.containsKey("house") &&
-                        args.get("house") != null;
-
-            case STRING_ARG:
-                return args.containsKey("fileName") &&
-                        args.get("fileName") instanceof String &&
-                        !((String) args.get("fileName")).isEmpty();
-
-            default:
-                return false;
+        // Проверяем простые аргументы
+        if (type.requiresArguments()) {
+            // Для команд с аргументами проверяем, что args не пустой
+            return !args.isEmpty();
         }
+
+        // Проверяем сложные данные
+        if (type.requiresData()) {
+            if (type == CommandType.ADD || type == CommandType.ADD_IF_MIN || type == CommandType.UPDATE) {
+                return args.containsKey("flat") && args.get("flat") != null;
+            } else if (type == CommandType.FILTER_GREATER_THAN_HOUSE) {
+                return args.containsKey("house") && args.get("house") != null;
+            }
+        }
+
+        // Для команд без аргументов
+        return args.isEmpty();
     }
-
     // Проверка что объект не null
     public boolean isNotNull(Object object, String fieldName) {
         return object != null;

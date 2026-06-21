@@ -1,12 +1,11 @@
 package server.application.service;
 
 import common.domain.model.User;
-import common.util.PasswordHasher;
-import server.application.context.UserContext;
 import server.infrastructure.repository.UserRepository;
 
 /**
- * Сервис авторизации и регистрации юсера.
+ * Сервис авторизации и регистрации пользователей.
+ * Отвечает за бизнес-логику работы с учетными записями.
  */
 public class AuthService {
 
@@ -17,48 +16,18 @@ public class AuthService {
     }
 
     /**
-     * Вход в систему. Проверяет логин и пароль.
-     * Если успешно — сохраняет пользователя в UserContext.
+     * Выполняет вход пользователя в систему.
+     * Проверяет логин и пароль через репозиторий.
      */
     public User login(String login, String password) {
-        User user = userRepository.validatePassword(login, password);
-
-        if (user == null) {
-            throw new SecurityException("Неверный логин или пароль");
-        }
-
-        UserContext.setUser(user);
-        return user;
+        return userRepository.validatePassword(login, password);
     }
 
     /**
-     * Регистрация нового пользователя.
+     * Регистрирует нового пользователя.
+     * @throws IllegalArgumentException если пользователь с таким логином уже существует
      */
     public User register(String login, String password) {
-        try {
-            User newUser = userRepository.save(login, password);
-            UserContext.setUser(newUser);
-            return newUser;
-        } catch (IllegalArgumentException e) {
-            throw new SecurityException("Пользователь с таким логином уже существует");
-        }
-    }
-
-    /**
-     * Проверка, авторизован ли текущий запрос.
-     */
-    public static boolean isAuthenticated() {
-        return UserContext.getUser() != null;
-    }
-
-    /**
-     * Получить текущего пользователя (выбросит ошибку, если не вошёл).
-     */
-    public static User requireAuthenticated() {
-        User user = UserContext.getUser();
-        if (user == null) {
-            throw new SecurityException("Доступ запрещён: выполните вход");
-        }
-        return user;
+        return userRepository.save(login, password);
     }
 }

@@ -3,6 +3,7 @@ package server.connection;
 import common.request.Request;
 import common.response.Response;
 import server.application.context.UserContext;
+import server.application.service.AuthService;
 import server.application.service.FlatService;
 import server.application.command.CommandRegistryServer;
 
@@ -24,10 +25,11 @@ public class UdpServer {
     private volatile boolean running = true;
     private final byte[] buffer = new byte[65507];
 
-    public UdpServer(int port, FlatService flatService, ThreadPoolManager threadPoolManager) {
+    public UdpServer(int port, FlatService flatService, AuthService authService, ThreadPoolManager threadPoolManager) {
         this.port = port;
         this.flatService = flatService;
-        this.commandRegistry = new CommandRegistryServer(flatService);
+        // Передаём оба сервиса в реестр команд
+        this.commandRegistry = new CommandRegistryServer(flatService, authService);
         this.threadPoolManager = threadPoolManager;
     }
 
@@ -45,13 +47,12 @@ public class UdpServer {
                     threadPoolManager.getReceivePool().submit(() -> {
                         try {
                             Request request = deserialize(packet.getData(), packet.getLength());
-                            System.out.println("Получено: " + request.getCommandName());
-
+                            System.out.println("Получено: " + request.getType());
                             //  обработка - (Cached Pool)
                             threadPoolManager.getProcessPool().submit(() -> {
                                 try {
 
-                                    synchronized (collectionLock) {
+                                    synchronized (collectionLock) { // просто пустой обькт(замок)
                                         Response response = commandRegistry.execute(request);
 
                                         // отпрвка - (Fixed Pool)

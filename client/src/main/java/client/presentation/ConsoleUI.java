@@ -2,7 +2,6 @@ package client.presentation;
 
 import client.network.UdpClient;
 import client.parser.CommandStringParser;
-import client.parser.ParseException;
 import client.presentation.application.command_cl.CommandRegistry;
 import client.presentation.application.validator.InputValidator;
 import common.domain.enums.Furnish;
@@ -18,9 +17,15 @@ import common.response.Response;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Collection;
 import java.util.Scanner;
+import java.time.LocalDateTime;
 
+/**
+ * Консольный интерфейс клиента.
+ * Обрабатывает ввод пользователя, формирует запросы и выводит ответы сервера.
+ */
 public class ConsoleUI {
 
     private String currentLogin = "";
@@ -43,6 +48,9 @@ public class ConsoleUI {
         this.running = true;
     }
 
+    /**
+     * Запускает основной цикл обработки команд.
+     */
     public void start() {
         System.out.println("Добро пожаловать в приложение управления квартирами");
         System.out.println("Введите 'help' для получения справки по командам.");
@@ -72,33 +80,41 @@ public class ConsoleUI {
         processInput(input, false);
     }
 
+    /**
+     * Обрабатывает введённую пользователем команду.
+     * @param input строка ввода
+     * @param isScriptMode флаг, указывающий, что команда выполняется из скрипта
+     */
     private void processInput(String input, boolean isScriptMode) {
         String[] parts = input.split("\\s+", 2);
         String commandName = parts[0].toLowerCase();
         String arguments = parts.length > 1 ? parts[1] : "";
 
-        // Клиентские команды
+        // Клиентские команды: login/register
         if (commandName.equals("login") || commandName.equals("register")) {
             handleAuth(commandName, arguments);
             return;
         }
 
+        // Клиентская команда: help
         if (commandName.equals("help")) {
             printHelp();
             return;
         }
 
+        // Клиентская команда: execute_script
         if (commandName.equals("execute_script")) {
             executeScriptFile(arguments);
             return;
         }
 
+        // Клиентская команда: exit
         if (commandName.equals("exit")) {
             running = false;
             return;
         }
 
-        // Интерактивный ввод для add/update
+        // Интерактивный ввод для команд add / add_if_min
         if (commandName.equals("add") || commandName.equals("add_if_min")) {
             if (isScriptMode) {
                 handleFlatCommand(commandName, arguments);
@@ -108,6 +124,7 @@ public class ConsoleUI {
             return;
         }
 
+        // Интерактивный ввод для команды update
         if (commandName.equals("update")) {
             if (isScriptMode) {
                 handleUpdateCommand(arguments);
@@ -117,7 +134,7 @@ public class ConsoleUI {
             return;
         }
 
-        // Остальные команды
+        // Обработка остальных команд
         Request request = createRequest(commandName, arguments);
         if (request == null) {
             return;
@@ -127,12 +144,15 @@ public class ConsoleUI {
         printResponse(response);
     }
 
+    /**
+     * Выводит справку по доступным командам.
+     */
     private void printHelp() {
         Request request = new Request(CommandType.HELP, null, null, currentUser);
         Response response = UdpClient.send(request);
 
         if (response != null && response.isSuccess()) {
-            System.out.println("Серверные команды");
+            System.out.println("Серверные команды:");
             if (response.getData() != null) {
                 System.out.println(response.getData());
             } else if (response.getMessage() != null) {
@@ -140,13 +160,18 @@ public class ConsoleUI {
             }
         }
 
-        System.out.println("\nКлиентские команды");
+        System.out.println("\nКлиентские команды:");
         System.out.println("execute_script <file> - выполнить скрипт из файла");
         System.out.println("exit - завершить работу клиента");
         System.out.println("help - показать эту справку");
     }
 
+    /**
+     * Обработка команд авторизации (login/register).
+     * Сохраняет объект пользователя, если сервер вернул его в ответе.
+     */
     private void handleAuth(String commandName, String arguments) {
+        // Парсим аргументы: логин и пароль
         String[] parts = arguments.split("\\s+", 2);
         if (parts.length < 2) {
             System.err.println("Использование: " + commandName + " <login> <password>");
@@ -156,7 +181,10 @@ public class ConsoleUI {
         String login = parts[0];
         String password = parts[1];
 
+        // Определяем тип команды
         CommandType type = commandName.equals("login") ? CommandType.LOGIN : CommandType.REGISTER;
+
+        // Создаём запрос: при авторизации пользователь ещё не известен, поэтому передаём null
         Request request = new Request(
                 type,
                 new String[]{login, password},
@@ -164,9 +192,12 @@ public class ConsoleUI {
                 null
         );
 
+        // Отправляем запрос на сервер
         Response response = UdpClient.send(request);
 
+        // Обрабатываем ответ
         if (response != null && response.isSuccess()) {
+            // Если сервер вернул объект пользователя — сохраняем его
             if (response.getData() instanceof User) {
                 this.currentUser = (User) response.getData();
                 this.currentLogin = login;
@@ -174,6 +205,7 @@ public class ConsoleUI {
                 this.isAuthenticated = true;
                 System.out.println("Авторизация успешна: " + login);
             } else {
+                // Если сервер не вернул User (старая версия ответа)
                 this.currentLogin = login;
                 this.currentPassword = password;
                 this.isAuthenticated = true;
@@ -185,6 +217,10 @@ public class ConsoleUI {
         }
     }
 
+    /**
+     * Выполнение скрипта из файла.
+     * Читает файл построчно и выполняет команды в том же контексте.
+     */
     private void executeScriptFile(String fileName) {
         if (fileName == null || fileName.trim().isEmpty()) {
             System.err.println("Укажите имя файла: execute_script <filename>");
@@ -193,6 +229,7 @@ public class ConsoleUI {
 
         fileName = fileName.trim();
 
+        // Защита от бесконечной рекурсии вложенных скриптов
         if (scriptDepth >= MAX_SCRIPT_DEPTH) {
             System.err.println("Превышена максимальная вложенность скриптов");
             return;
@@ -215,6 +252,7 @@ public class ConsoleUI {
                 lineNumber++;
                 line = line.trim();
 
+                // Пропускаем пустые строки и комментарии
                 if (line.isEmpty() || line.startsWith("#") || line.startsWith("//")) {
                     continue;
                 }
@@ -232,21 +270,28 @@ public class ConsoleUI {
         }
     }
 
+    /**
+     * Создаёт Request объект на основе команды и аргументов.
+     * Распределяет данные: простые аргументы → String[], сложные объекты → Serializable data.
+     */
     private Request createRequest(String commandName, String arguments) {
         try {
             CommandType type = CommandType.fromString(commandName.toUpperCase());
 
             String[] argsArray = null;
-            Object data = null;
+            Serializable data = null;
 
+            // Если команда требует простых аргументов (числа, строки)
             if (type.requiresArguments() && !arguments.isEmpty()) {
                 argsArray = new String[]{arguments};
             }
 
+            // Если команда требует сложного объекта (Flat, House)
             if (type.requiresData()) {
                 data = commandParser.parseData(arguments, type);
             }
 
+            // Создаём запрос с текущим пользователем (может быть null, если не авторизован)
             return new Request(type, argsArray, data, currentUser);
 
         } catch (Exception e) {
@@ -255,6 +300,9 @@ public class ConsoleUI {
         }
     }
 
+    /**
+     * Обработка команд с объектом Flat в скриптовом режиме.
+     */
     private void handleFlatCommand(String commandName, String arguments) {
         Request request = createRequest(commandName, arguments);
         if (request == null) {
@@ -265,7 +313,17 @@ public class ConsoleUI {
         printResponse(response);
     }
 
+    /**
+     * Обработка команд с объектом Flat в интерактивном режиме.
+     * Проверяет авторизацию перед запросом данных у пользователя.
+     */
     private void handleInteractiveFlatCommand(String commandName) {
+        // Проверка авторизации перед началом ввода данных
+        if (currentUser == null) {
+            System.err.println("Требуется авторизация. Выполните: login <login> <password>");
+            return;
+        }
+
         System.out.println("Команда: " + commandName);
         Flat flat = readFlatInteractively();
 
@@ -275,12 +333,16 @@ public class ConsoleUI {
         }
 
         CommandType type = CommandType.fromString(commandName.toUpperCase());
+        // Объект Flat передаётся в поле data, аргументы = null
         Request request = new Request(type, null, flat, currentUser);
 
         Response response = UdpClient.send(request);
         printResponse(response);
     }
 
+    /**
+     * Обработка команды update в скриптовом режиме.
+     */
     private void handleUpdateCommand(String arguments) {
         Request request = createRequest("update", arguments);
         if (request == null) {
@@ -291,7 +353,18 @@ public class ConsoleUI {
         printResponse(response);
     }
 
+    /**
+     * Обработка команды update в интерактивном режиме.
+     * Проверяет авторизацию перед запросом данных у пользователя.
+     * ID передаётся в аргументах, новые данные квартиры — в поле data.
+     */
     private void handleInteractiveUpdateCommand(String arguments) {
+        // Проверка авторизации перед началом ввода данных
+        if (currentUser == null) {
+            System.err.println("Требуется авторизация. Выполните: login <login> <password>");
+            return;
+        }
+
         if (arguments.trim().isEmpty()) {
             System.err.println("Укажите ID: update <id>");
             return;
@@ -328,6 +401,10 @@ public class ConsoleUI {
         printResponse(response);
     }
 
+    /**
+     * Интерактивный ввод данных квартиры через консоль.
+     * Возвращает объект Flat или null, если ввод прерван.
+     */
     private Flat readFlatInteractively() {
         try {
             System.out.print("Название: ");
@@ -408,7 +485,10 @@ public class ConsoleUI {
                 house = new House(houseName, year, floors, flatsOnFloor, lifts);
             }
 
-            return new Flat(name, coordinates, area, numberOfRooms, numberOfBathrooms, furnish, view, house);
+            Flat flat = new Flat(name, coordinates, area, numberOfRooms, numberOfBathrooms, furnish, view, house);
+            flat.setCreationDate(LocalDateTime.now());
+
+            return flat;
 
         } catch (NumberFormatException e) {
             System.err.println("Ошибка числа: " + e.getMessage());
@@ -419,6 +499,10 @@ public class ConsoleUI {
         }
     }
 
+    /**
+     * Вывод ответа от сервера в консоль.
+     * Обрабатывает коллекции и простые сообщения.
+     */
     private void printResponse(Response response) {
         if (response == null) {
             System.err.println("Нет ответа от сервера");

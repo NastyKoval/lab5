@@ -1,19 +1,17 @@
 package client.parser;
 
 import client.presentation.application.command_cl.CommandRegistry;
-import common.request.CommandType;
-import common.request.Request;
 import client.presentation.application.validator.InputValidator;
 import common.domain.enums.Furnish;
 import common.domain.enums.View;
 import common.domain.model.Coordinates;
 import common.domain.model.Flat;
 import common.domain.model.House;
+import common.request.CommandType;
+import common.request.Request;
 
 import java.io.Serializable;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 public class CommandStringParser {
 
@@ -25,39 +23,26 @@ public class CommandStringParser {
 
     public Request parseCommand(String commandName, String arguments, CommandRegistry registry) throws ParseException {
         CommandType type = registry.getCommandType(commandName);
-        Map<String, Object> args = new HashMap<>();
 
-        switch (type) {
-            case NO_ARGS:
-                break;
-            case ID_ARG:
-                args.put("id", parseInteger(arguments, "ID"));
-                break;
-            case FLAT_ARG:
-                args.put("flat", parseFlat(arguments));
-                break;
-            case ID_AND_FLAT:
-                parseUpdateArguments(arguments, args);
-                break;
-            case LONG_ARG:
-                args.put("value", parseLong(arguments, "Значение"));
-                break;
-            case HOUSE_ARG:
-                args.put("house", parseHouse(arguments));
-                break;
-            case STRING_ARG:
-                if (!validator.validateString(arguments, "Имя файла")) {
-                    throw new ParseException("Имя файла не может быть пустым");
-                }
-                args.put("fileName", arguments.trim());
-                break;
+        // Определяем простые аргументы и сложные данные
+        String[] argsArray = null;
+        Serializable data = null;
+
+        // Обрабатываем в зависимости от типа команды
+        if (type.requiresArguments()) {
+            // Простые аргументы (числа, строки) → в массив
+            if (arguments != null && !arguments.trim().isEmpty()) {
+                argsArray = new String[]{arguments.trim()};
+            }
         }
 
-        if (!validator.checkArgs(args, type)) {
-            throw new ParseException("Неверные аргументы для команды: " + commandName);
+        if (type.requiresData()) {
+            // Сложные объекты (Flat, House) → парсим и кладём в data
+            data = parseData(arguments, type);
         }
 
-        return registry.buildRequest(commandName, args);
+        // Создаём Request в новом формате
+        return new Request(type, argsArray, data, null); // User подставится в ConsoleUI
     }
 
     private Flat parseFlat(String arguments) throws ParseException {
@@ -157,23 +142,6 @@ public class CommandStringParser {
         return new House(name, year, numberOfFloors, numberOfFlatsOnFloor, numberOfLifts);
     }
 
-    private void parseUpdateArguments(String arguments, Map<String, Object> args) throws ParseException {
-        String[] updateArgs = arguments.split("\\s+", 2);
-        if (updateArgs.length < 2) {
-            throw new ParseException("Требуется ID и данные квартиры");
-        }
-        if (!validator.isInteger(updateArgs[0])) {
-            throw new ParseException("ID должен быть целым числом");
-        }
-        int updateId = Integer.parseInt(updateArgs[0].trim());
-        if (updateId <= 0) {
-            throw new ParseException("ID должен быть больше 0");
-        }
-        Flat updateFlat = parseFlat(updateArgs[1]);
-        args.put("id", updateId);
-        args.put("flat", updateFlat);
-    }
-
     private Integer parseInteger(String value, String fieldName) throws ParseException {
         try {
             int result = Integer.parseInt(value.trim());
@@ -197,6 +165,7 @@ public class CommandStringParser {
             throw new ParseException(fieldName + " должен быть числом");
         }
     }
+
     /**
      * Парсит данные для команды в зависимости от типа.
      * Возвращает Flat, House, Integer, Long или null.
@@ -205,8 +174,8 @@ public class CommandStringParser {
         return switch (type) {
             case ADD, ADD_IF_MIN, UPDATE -> parseFlat(input);
             case FILTER_GREATER_THAN_HOUSE -> parseHouse(input);
-            case REMOVE_BY_ID, COUNT_LESS_THAN_NUMBER_OF_BATHROOMS ->
-                    Integer.parseInt(input.trim());
+            case REMOVE_BY_ID -> parseInteger(input, "ID");
+            case COUNT_LESS_THAN_NUMBER_OF_BATHROOMS -> parseLong(input, "Значение");
             default -> null;
         };
     }

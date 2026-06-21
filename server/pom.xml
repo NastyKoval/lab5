@@ -22,7 +22,7 @@
             <version>1.0-SNAPSHOT</version>
         </dependency>
 
-        <!--Log4J2 -->
+        <!-- Log4J2 -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
@@ -32,14 +32,14 @@
             <artifactId>log4j-api</artifactId>
         </dependency>
 
-        <!--JUnit -->
+        <!-- JUnit -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
 
-        <!-- Драйвер PostgreSQL JDBC -->
+        <!-- ДРАЙВЕР POSTGRESQL -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>

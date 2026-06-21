@@ -19,8 +19,33 @@ public class UserRepository {
 
     public UserRepository(DatabaseManager dbManager) {
         this.dbManager = dbManager;
+        // Создаём таблицу при инициализации репозитория
+        createTableIfNotExists();
     }
 
+    /**
+     * Создаёт таблицу users, если она ещё не существует.
+     */
+    private void createTableIfNotExists() {
+        // SERIAL - это специальный тип PostgreSQL для автоинкремента,
+        // он сам создаёт sequence внутри себя автоматически
+        String sql = """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                login TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL
+            )
+            """;
+
+        try (Connection conn = dbManager.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+            System.out.println("Таблица users проверена/создана");
+        } catch (SQLException e) {
+            System.err.println("Ошибка создания таблицы users: " + e.getMessage());
+            throw new RuntimeException("Не удалось инициализировать таблицу пользователей", e);
+        }
+    }
 
     public User findByLogin(String login) {
         String sql = "SELECT id, login, password_hash FROM users WHERE login = ?";
@@ -31,7 +56,7 @@ public class UserRepository {
             // Устанавливаем параметр запроса (вместо ?)
             stmt.setString(1, login);
 
-            try (ResultSet rs = stmt.executeQuery()) { // Выполняет запрос с опдставленными данными
+            try (ResultSet rs = stmt.executeQuery()) { // Выполняет запрос с подставленными данными
                 if (rs.next()) {
                     // Если нашли запись то создаём User
                     int id = rs.getInt("id");
@@ -65,23 +90,30 @@ public class UserRepository {
             throw new IllegalArgumentException("Пользователь с таким логином уже существует");
         }
 
-
         String passwordHash = PasswordHasher.hash(password);
 
         // SQL для вставки нового пользователя
-        String sql = "INSERT INTO users (login, password_hash) VALUES (?, ?) RETURNING id";
+        // Используем RETURN_GENERATED_KEYS для получения сгенерированного ID (SQLite)
+        String sql = "INSERT INTO users (login, password_hash) VALUES (?, ?)";
 
         try (Connection conn = dbManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             // Устанавливаем параметры
             stmt.setString(1, login);
             stmt.setString(2, passwordHash);
 
-            // Выполняем и получаем сгенерированный ID
-            try (ResultSet rs = stmt.executeQuery()) {
+            // Выполняем вставку
+            int affectedRows = stmt.executeUpdate();
+
+            if (affectedRows == 0) {
+                throw new SQLException("Не удалось зарегистрировать пользователя, нет затронутых строк");
+            }
+
+            // Получаем сгенерированный ID через getGeneratedKeys()
+            try (ResultSet rs = stmt.getGeneratedKeys()) {
                 if (rs.next()) {
-                    int id = rs.getInt("id");
+                    int id = rs.getInt(1);
                     System.out.println("Пользователь зарегистрирован: " + login + " (ID: " + id + ")");
                     return new User(id, login, passwordHash);
                 } else {

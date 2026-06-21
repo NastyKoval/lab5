@@ -1,42 +1,61 @@
 package server;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import server.connection.UdpServer;
+import server.application.service.AuthService;
 import server.application.service.FlatService;
+import server.connection.ThreadPoolManager;
+import server.connection.UdpServer;
+import server.infrastructure.database.DatabaseManager;
+import server.infrastructure.repository.FlatRepository;
 import server.infrastructure.repository.FlatRepositoryImpl;
-import server.infrastructure.file.FileManager;
+import server.infrastructure.repository.UserRepository;
+
+/**
+ * Точка входа сервера.
+ * Инициализирует все компоненты и запускает UDP-сервер.
+ */
 public class MainServer {
 
-    private static final Logger logger = LogManager.getLogger(MainServer.class);
-
     public static void main(String[] args) {
-        if (args.length == 0) {
-            System.err.println("Usage: java -jar server.jar <data_file.csv>");
-            System.exit(1);
-        }
 
-        String fileName = args[0];
-        logger.info("Server starting... File: {}", fileName);
+        // Инициализация базы данных
+        // Подключаемся через SSH-туннель: ssh -L 5432:pg:5432 <логин>@<сервер>
+        String dbUrl = "jdbc:postgresql://localhost:5432/studs";
+        String dbUser = "s505056";
+        String dbPassword = "6mskl75cq9tHb3Ao";
+        String dbDriver = "org.postgresql.Driver";
 
-        final FileManager fileManager = new FileManager(fileName);
-        final FlatRepositoryImpl repository = new FlatRepositoryImpl(fileName);
-        FlatService flatService = new FlatService(repository);
+        DatabaseManager dbManager = new DatabaseManager(dbUrl, dbUser, dbPassword, dbDriver);
 
-        // Shutdown hook
+        // Инициализация пользователей и сервиса авторизации
+        UserRepository userRepository = new UserRepository(dbManager);
+        AuthService authService = new AuthService(userRepository);
+
+        // Создаём таблицу квартир (после users, т.к. flats ссылается на users)
+        dbManager.initFlatsSchema();
+
+        // Инициализация репозитория и сервиса для работы с квартирами
+        FlatRepository flatRepository = new FlatRepositoryImpl(dbManager);
+        FlatService flatService = new FlatService(flatRepository);
+
+        // Создание менеджера пулов потоков для многопоточной обработки
+        ThreadPoolManager threadPoolManager = new ThreadPoolManager();
+
+        // Хук для сохранения данных при корректном завершении работы сервера
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            logger.info("Shutdown hook triggered, saving collection...");
+            System.out.println("Shutdown hook triggered, saving collection...");
             try {
-                repository.saveToFile();
-                logger.info("Collection saved successfully");
+                flatRepository.saveAll(flatRepository.findAll());
+                System.out.println("Collection saved successfully");
             } catch (Exception e) {
-                logger.error("Ошибка при сохранении: {}", e.getMessage());
+                System.err.println("Ошибка при сохранении: " + e.getMessage());
                 e.printStackTrace();
             }
         }));
 
-        UdpServer server = new UdpServer(8080, flatService);
-        logger.info("Server started on port 8080");
+        // Создание и запуск UDP-сервера
+        UdpServer server = new UdpServer(8080, flatService, authService, threadPoolManager);
+
+        System.out.println("Server started on port 8080");
         server.start();
     }
 }

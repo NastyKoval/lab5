@@ -54,5 +54,7 @@ public interface FlatRepository {
     boolean existsById(int id);
 
     void update(int id, Flat flat);
-    }
+
+    int removeByOwnerId(int ownerId);
+}
 

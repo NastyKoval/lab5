@@ -26,14 +26,20 @@ public class RemoveCommand implements CommandHandler {
             // Превращаем строку "5" в число 5
             int id = Integer.parseInt(args[0]);
 
-            boolean removed = flatService.removeById(id);
+            // ID пользователя, который выполняет запрос (для проверки прав)
+            int requesterId = request.getUser().getId();
+
+            boolean removed = flatService.removeById(id, requesterId);
 
             return removed
                     ? new Response(true, "Квартира удалена", null)
-                    : new Response(false, "Квартира не найдена или нет прав", null);
+                    : new Response(false, "Квартира с таким ID не найдена", null);
 
         } catch (NumberFormatException e) {
             return new Response(false, "Неверный формат ID (должно быть число)", null);
+        } catch (SecurityException e) {
+            // объект существует, но принадлежит другому пользователю
+            return new Response(false, e.getMessage(), null);
         } catch (Exception e) {
             return new Response(false, "Ошибка: " + e.getMessage(), null);
         }

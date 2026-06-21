@@ -1,7 +1,10 @@
 package client.presentation.application.command_cl;
 
+import common.domain.model.User;
 import common.request.CommandType;
+import common.request.Request;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,6 +17,7 @@ public class CommandRegistry {
     private final Map<String, CommandType> commandMap;
     private String currentLogin = "";      // Для авторизации
     private String currentPassword = "";
+    private User currentUser = null;
 
     public CommandRegistry() {
         this.commandMap = new HashMap<>();
@@ -29,26 +33,41 @@ public class CommandRegistry {
     }
 
     /**
+     * Устанавливает текущего пользователя (объект User).
+     */
+    public void setCurrentUser(User user) {
+        this.currentUser = user;
+        this.currentLogin = user.getLogin();
+    }
+
+    /**
      * Регистрирует все команды (только имена и типы).
      */
     private void registerAllCommands() {
         // Команды без аргументов
-        commandMap.put("help", CommandType.NO_ARGS);
-        commandMap.put("info", CommandType.NO_ARGS);
-        commandMap.put("show", CommandType.NO_ARGS);
-        commandMap.put("clear", CommandType.NO_ARGS);
-        commandMap.put("remove_first", CommandType.NO_ARGS);
-        commandMap.put("remove_head", CommandType.NO_ARGS);
-        commandMap.put("print_field_descending_furnish", CommandType.NO_ARGS);
+        commandMap.put("help", CommandType.HELP);
+        commandMap.put("info", CommandType.INFO);
+        commandMap.put("show", CommandType.SHOW);
+        commandMap.put("clear", CommandType.CLEAR);
+        commandMap.put("remove_first", CommandType.REMOVE_FIRST);
+        commandMap.put("remove_head", CommandType.REMOVE_HEAD);
+        commandMap.put("print_field_descending_furnish", CommandType.PRINT_FIELD_DESCENDING_FURNISH);
+        commandMap.put("save", CommandType.SAVE);
+        commandMap.put("exit", CommandType.EXIT);
 
         // Команды с аргументами
-        commandMap.put("add", CommandType.FLAT_ARG);
-        commandMap.put("add_if_min", CommandType.FLAT_ARG);
-        commandMap.put("remove_by_id", CommandType.ID_ARG);
-        commandMap.put("update", CommandType.ID_AND_FLAT);
-        commandMap.put("count_less_than_number_of_bathrooms", CommandType.LONG_ARG);
-        commandMap.put("filter_greater_than_house", CommandType.HOUSE_ARG);
-        commandMap.put("execute_script", CommandType.STRING_ARG);
+        commandMap.put("add", CommandType.ADD);
+        commandMap.put("add_if_min", CommandType.ADD_IF_MIN);
+        commandMap.put("remove_by_id", CommandType.REMOVE_BY_ID);
+        commandMap.put("update", CommandType.UPDATE);
+        commandMap.put("count_less_than_number_of_bathrooms", CommandType.COUNT_LESS_THAN_NUMBER_OF_BATHROOMS);
+        commandMap.put("filter_greater_than_house", CommandType.FILTER_GREATER_THAN_HOUSE);
+        commandMap.put("execute_script", CommandType.EXECUTE_SCRIPT);
+        commandMap.put("filter_less_than_furnish", CommandType.FILTER_LESS_THAN_FURNISH);
+
+        // Авторизация пользователя
+        commandMap.put("login", CommandType.LOGIN);
+        commandMap.put("register", CommandType.REGISTER);
     }
 
     /**
@@ -72,35 +91,35 @@ public class CommandRegistry {
     /**
      * Создаёт Request объект на основе имени команды и аргументов.
      */
-    public RequestNew buildRequest(String commandName, Map<String, Object> args) {
+    public Request buildRequest(String commandName, Map<String, Object> args) {
         CommandType type = getCommandType(commandName);
-        Object arguments = extractArguments(type, args);
 
-        // Вместо new AddRequest(flat) → new Request("add", flat, login, password)
-        return new RequestNew(commandName, arguments, currentLogin, currentPassword);
-    }
+        // Определяем простые аргументы (String[]) и сложные данные (Serializable)
+        String[] arguments = null;
+        Serializable data = null;
 
-    /**
-     * Извлекает аргументы в зависимости от типа команды.
-     */
-    private Object extractArguments(CommandType type, Map<String, Object> args) {
-        return switch (type) {
-            case NO_ARGS -> null;
-            case ID_ARG -> args.get("id");
-            case FLAT_ARG -> args.get("flat");
-            case ID_AND_FLAT -> {
-                // Для update нужен Map с id и flat
-                Map<String, Object> updateData = new HashMap<>();
-                updateData.put("id", args.get("id"));
-                updateData.put("flat", args.get("flat"));
-                yield updateData;
+        // Извлекаем аргументы в зависимости от типа команды
+        if (type.requiresArguments()) {
+            // Простые аргументы (числа, строки) → в массив
+            if (args != null && !args.isEmpty()) {
+                // Берём первый попавшийся аргумент как строку
+                Object arg = args.values().iterator().next();
+                arguments = new String[]{arg.toString()};
             }
-            case LONG_ARG -> args.get("value");
-            case HOUSE_ARG -> args.get("house");
-            case STRING_ARG -> args.get("fileName");
-            default -> null;
-        };
+        }
+
+        if (type.requiresData()) {
+            // Сложные объекты (Flat, House) → в data
+            if (args != null) {
+                if (args.containsKey("flat")) {
+                    data = (Serializable) args.get("flat");
+                } else if (args.containsKey("house")) {
+                    data = (Serializable) args.get("house");
+                }
+            }
+        }
+
+        // Вместо new AddRequest(flat) → new Request(CommandType, String[], Serializable, User)
+        return new Request(type, arguments, data, currentUser);
     }
-
-
 }

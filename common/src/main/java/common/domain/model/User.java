@@ -19,7 +19,7 @@ public class User implements Serializable {
      *
      * @param id идентификатор пользователя
      * @param login логин (уникальный)
-     * @param passwordHash хеш пароля (НЕ сам пароль!)
+     * @param passwordHash хеш пароля
      */
     public User(int id, String login, String passwordHash) {
         if (login == null || login.trim().isEmpty()) {

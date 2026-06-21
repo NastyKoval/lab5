@@ -23,7 +23,10 @@ public class AddCommand implements CommandHandler {
                 return new Response(false, "Данные квартиры не переданы", null);
             }
 
-            flatService.addFlat(flat);
+            // ID пользователя, который создаёт квартиру - станет владельцем
+            int ownerId = request.getUser().getId();
+
+            flatService.addFlat(flat, ownerId);
 
             return new Response(true, "Добавлено с ID=" + flat.getId(), null);
 
